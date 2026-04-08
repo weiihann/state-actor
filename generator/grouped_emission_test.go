@@ -345,13 +345,13 @@ func TestCollectAccountEntriesParallelEquivalence(t *testing.T) {
 	})
 
 	// Sequential
-	seqEntries := collectAccountEntries(addr, acc, len(code), code, slots, nil)
+	seqEntries := collectAccountEntries(addr, acc, len(code), common.BytesToHash(acc.CodeHash), code, slots, nil)
 	sort.Slice(seqEntries, func(i, j int) bool {
 		return bytes.Compare(seqEntries[i].Key[:], seqEntries[j].Key[:]) < 0
 	})
 
 	// Parallel
-	parEntries := collectAccountEntriesParallel(addr, acc, len(code), code, slots)
+	parEntries := collectAccountEntriesParallel(addr, acc, len(code), common.BytesToHash(acc.CodeHash), code, slots)
 
 	if len(seqEntries) != len(parEntries) {
 		t.Fatalf("entry count mismatch: seq=%d par=%d", len(seqEntries), len(parEntries))
@@ -363,15 +363,14 @@ func TestCollectAccountEntriesParallelEquivalence(t *testing.T) {
 	}
 }
 
-
 // TestParallelStreamingEquivalence verifies that the parallel pipeline
 // produces the exact same root hash as the serial implementation.
 func TestParallelStreamingEquivalence(t *testing.T) {
 	tests := []struct {
-		name       string
+		name        string
 		numAccounts int
-		groupDepth int
-		writeNodes bool
+		groupDepth  int
+		writeNodes  bool
 	}{
 		{"gd0_no_write", 50, 0, false},
 		{"gd0_with_write", 50, 0, true},
@@ -490,7 +489,7 @@ func generateDeterministicEntries(t *testing.T, numAccounts int) []trieEntry {
 			CodeHash: types.EmptyCodeHash.Bytes(),
 		}
 
-		entries = collectAccountEntries(addr, acc, 0, nil, nil, entries)
+		entries = collectAccountEntries(addr, acc, 0, types.EmptyCodeHash, nil, nil, entries)
 
 		// Every 5th account: add some storage slots
 		if i%5 == 0 {
