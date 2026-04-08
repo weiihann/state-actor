@@ -8,8 +8,8 @@ import (
 	"math"
 	mrand "math/rand"
 	"os"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -900,7 +900,7 @@ func (g *Generator) generateStreamingBinary() (retStats *Stats, retErr error) {
 			ad.codeHash = codeHash
 		}
 
-		entryBuf = collectAccountEntries(addr, acc, len(ad.code), ad.code, ad.storage, entryBuf[:0])
+		entryBuf = collectAccountEntries(addr, acc, len(ad.code), common.BytesToHash(acc.CodeHash), ad.code, ad.storage, entryBuf[:0])
 		if err := writeEntries(entryBuf); err != nil {
 			return nil, fmt.Errorf("failed to write genesis trie entries: %w", err)
 		}
@@ -931,7 +931,7 @@ func (g *Generator) generateStreamingBinary() (retStats *Stats, retErr error) {
 			Root:     types.EmptyRootHash,
 			CodeHash: types.EmptyCodeHash.Bytes(),
 		}
-		entryBuf = collectAccountEntries(addr, injectAccount, 0, nil, nil, entryBuf[:0])
+		entryBuf = collectAccountEntries(addr, injectAccount, 0, types.EmptyCodeHash, nil, nil, entryBuf[:0])
 		if err := writeEntries(entryBuf); err != nil {
 			return nil, fmt.Errorf("failed to write injected trie entries: %w", err)
 		}
@@ -957,7 +957,7 @@ func (g *Generator) generateStreamingBinary() (retStats *Stats, retErr error) {
 			acc = g.generateEOA()
 		}
 
-		entryBuf = collectAccountEntries(acc.address, acc.account, 0, nil, nil, entryBuf[:0])
+		entryBuf = collectAccountEntries(acc.address, acc.account, 0, types.EmptyCodeHash, nil, nil, entryBuf[:0])
 		if err := writeEntries(entryBuf); err != nil {
 			return nil, fmt.Errorf("failed to write EOA trie entries: %w", err)
 		}
@@ -1024,9 +1024,9 @@ func (g *Generator) generateStreamingBinary() (retStats *Stats, retErr error) {
 	for contract := range contractCh {
 		var entries []trieEntry
 		if len(contract.storage) >= parallelStorageThreshold {
-			entries = collectAccountEntriesParallel(contract.address, contract.account, len(contract.code), contract.code, contract.storage)
+			entries = collectAccountEntriesParallel(contract.address, contract.account, len(contract.code), contract.codeHash, contract.code, contract.storage)
 		} else {
-			entryBuf = collectAccountEntries(contract.address, contract.account, len(contract.code), contract.code, contract.storage, entryBuf[:0])
+			entryBuf = collectAccountEntries(contract.address, contract.account, len(contract.code), contract.codeHash, contract.code, contract.storage, entryBuf[:0])
 			entries = entryBuf
 		}
 		if err := writeEntries(entries); err != nil {
@@ -1399,7 +1399,6 @@ func trimLeftZeroes(s []byte) []byte {
 	}
 	return nil
 }
-
 
 func formatBytesInternal(b uint64) string {
 	const unit = 1024

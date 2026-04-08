@@ -7,21 +7,22 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
-	"time"
 	"math/bits"
 	"runtime"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie/bintrie"
+	"github.com/holiman/uint256"
 )
 
 const (
-	stemSize      = bintrie.StemSize     // 31
-	hashSize      = bintrie.HashSize     // 32
+	stemSize      = bintrie.StemSize      // 31
+	hashSize      = bintrie.HashSize      // 32
 	stemNodeWidth = bintrie.StemNodeWidth // 256
 
 	// Node type markers matching bintrie/binary_node.go
@@ -211,6 +212,7 @@ func collectAccountEntries(
 	addr common.Address,
 	acc *types.StateAccount,
 	codeLen int,
+	codeHash common.Hash,
 	code []byte,
 	storage []storageSlot,
 	entries []trieEntry,
@@ -225,9 +227,8 @@ func collectAccountEntries(
 	}
 	copy(basicData[hashSize-len(balanceBytes):], balanceBytes[:])
 
-	// Stem for account header
-	var zeroKey [hashSize]byte
-	stem := bintrie.GetBinaryTreeKey(addr, zeroKey[:])
+	// Stem for account header (zone 000)
+	stem := bintrie.GetBinaryTreeKeyBasicData(addr)
 
 	// Entry for basic data (suffix = BasicDataLeafKey = 0)
 	var e0 trieEntry
@@ -245,7 +246,7 @@ func collectAccountEntries(
 
 	// Code chunk entries
 	if len(code) > 0 {
-		entries = collectCodeEntries(addr, code, entries)
+		entries = collectCodeEntries(addr, codeHash, code, entries)
 	}
 
 	// Storage entries
@@ -257,33 +258,45 @@ func collectAccountEntries(
 }
 
 // collectCodeEntries generates trie entries for contract code chunks.
-// Mirrors bintrie.BinaryTrie.UpdateContractCode: code is chunked via
-// ChunkifyCode, then grouped into StemNodes of 256 values each.
-// Within a group, chunks share the same stem; the suffix is the group offset.
+// Mirrors bintrie.BinaryTrie.UpdateContractCode with PBT zone partitioning:
 //
-// Layout:
-//   - First group: chunknr 0..127 at suffixes 128..255 (starts mid-stem)
-//   - Subsequent groups: 256 chunks each at suffixes 0..255
-//
-// The stem is recomputed only at group boundaries (groupOffset == 0 or chunknr == 0).
-func collectCodeEntries(addr common.Address, code []byte, entries []trieEntry) []trieEntry {
+//   - Chunks 0-127: zone 000 account header stem, sub_idx 0x80-0xFF
+//   - Chunks >= 128: zone 001, content-addressed by code_hash,
+//     grouped into stems of 256 (tree_index = (chunk-128)/256)
+func collectCodeEntries(addr common.Address, codeHash common.Hash, code []byte, entries []trieEntry) []trieEntry {
 	chunks := bintrie.ChunkifyCode(code)
+	nChunks := uint64(len(chunks) / hashSize)
 
+	// Zone 000: chunks 0-127 share the account header stem.
+	accountStem := bintrie.GetBinaryTreeStemAccount(addr)
+	headerCount := min(nChunks, bintrie.HeaderCodeChunks)
+	for c := uint64(0); c < headerCount; c++ {
+		var e trieEntry
+		copy(e.Key[:stemSize], accountStem)
+		e.Key[stemSize] = byte(bintrie.HeaderCodeStart + c)
+		copy(e.Value[:], chunks[c*hashSize:(c+1)*hashSize])
+		entries = append(entries, e)
+	}
+
+	// Zone 001: chunks >= 128, content-addressed by code_hash.
 	var stem []byte
-	for i, chunknr := 0, uint64(0); i < len(chunks); i, chunknr = i+hashSize, chunknr+1 {
-		groupOffset := (chunknr + 128) % stemNodeWidth
-		if groupOffset == 0 || chunknr == 0 {
-			var offset [hashSize]byte
-			binary.LittleEndian.PutUint64(offset[24:], chunknr+128)
-			stem = bintrie.GetBinaryTreeKey(addr, offset[:])
+	for c := uint64(bintrie.HeaderCodeChunks); c < nChunks; c++ {
+		adjusted := c - bintrie.HeaderCodeChunks
+		groupOffset := adjusted % stemNodeWidth
+
+		if groupOffset == 0 {
+			nr := new(uint256.Int).SetUint64(c)
+			k := bintrie.GetBinaryTreeKeyCodeChunk(addr, codeHash, nr)
+			stem = k[:stemSize]
 		}
 
 		var e trieEntry
-		copy(e.Key[:stemSize], stem[:stemSize])
+		copy(e.Key[:stemSize], stem)
 		e.Key[stemSize] = byte(groupOffset)
-		copy(e.Value[:], chunks[i:i+hashSize])
+		copy(e.Value[:], chunks[c*hashSize:(c+1)*hashSize])
 		entries = append(entries, e)
 	}
+
 	return entries
 }
 
@@ -382,11 +395,11 @@ func commonPrefixLenBits(a, b []byte) int {
 // group's bottom-layer boundary. This eliminates the need for a post-hoc
 // regroupTrieNodes pass. Memory overhead: O(groupDepth) per group.
 type streamingBuilder struct {
-	stack    [maxDepth]common.Hash      // pending child hash at each depth
-	occupied [maxDepth]bool             // whether stack[d] is valid
-	isRight  [maxDepth]bool             // true if stack[d] is a right child
-	stemBits [maxDepth][stemSize]byte   // stem that placed each pending hash
-	w        *trieNodeWriter            // optional: writes serialized nodes to DB
+	stack    [maxDepth]common.Hash    // pending child hash at each depth
+	occupied [maxDepth]bool           // whether stack[d] is valid
+	isRight  [maxDepth]bool           // true if stack[d] is a right child
+	stemBits [maxDepth][stemSize]byte // stem that placed each pending hash
+	w        *trieNodeWriter          // optional: writes serialized nodes to DB
 
 	// Grouped emission: when groupDepth > 0, internal nodes are written in
 	// grouped format at boundary depths. groupBuf collects bottom-layer
@@ -751,7 +764,6 @@ func computeBinaryRootStreaming(iter ethdb.Iterator, db ethdb.KeyValueStore, gro
 	return root, tnStats
 }
 
-
 // parallelStorageThreshold is the minimum number of storage slots needed
 // to justify worker pool overhead for parallel key derivation.
 const parallelStorageThreshold = 64
@@ -763,13 +775,14 @@ func collectAccountEntriesParallel(
 	addr common.Address,
 	acc *types.StateAccount,
 	codeLen int,
+	codeHash common.Hash,
 	code []byte,
 	storage []storageSlot,
 ) []trieEntry {
 	// Collect non-storage entries sequentially (account header + code).
 	// These are fast (2 entries for header, ~codeLen/32 for code chunks).
 	var entries []trieEntry
-	entries = collectAccountEntries(addr, acc, codeLen, code, nil, entries)
+	entries = collectAccountEntries(addr, acc, codeLen, codeHash, code, nil, entries)
 
 	// Collect storage entries in parallel if above threshold.
 	if len(storage) >= parallelStorageThreshold {
@@ -788,7 +801,6 @@ func collectAccountEntriesParallel(
 
 	return entries
 }
-
 
 // --- Parallel Phase 2 pipeline ---
 
@@ -833,10 +845,10 @@ func computeBinaryRootStreamingParallel(
 
 	// Channels
 	const maxInFlight = 64
-	sem := make(chan struct{}, maxInFlight)           // bounds total in-flight stems
-	workCh := make(chan *stemWork, 2*numWorkers)      // reader -> workers
-	resultCh := make(chan *stemResult, 2*numWorkers)  // workers -> resequencer
-	builderCh := make(chan *stemResult, 128)           // resequencer -> builder
+	sem := make(chan struct{}, maxInFlight)          // bounds total in-flight stems
+	workCh := make(chan *stemWork, 2*numWorkers)     // reader -> workers
+	resultCh := make(chan *stemResult, 2*numWorkers) // workers -> resequencer
+	builderCh := make(chan *stemResult, 128)         // resequencer -> builder
 
 	// Error collection
 	errCh := make(chan error, numWorkers+3) // enough for all goroutines
