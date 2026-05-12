@@ -19,10 +19,10 @@ import (
 // New format (per group): [type=2][groupDepth][bitmap][present hashes...] at group boundary
 //
 // Algorithm:
-// 1. Read all trie nodes from DB into an in-memory map: path -> blob
-// 2. For each group boundary, traverse groupDepth levels down via DFS,
-//    collecting bottom-layer child hashes and building the bitmap
-// 3. Serialize in new format, write at group boundary, delete old keys
+//  1. Read all trie nodes from DB into an in-memory map: path -> blob
+//  2. For each group boundary, traverse groupDepth levels down via DFS,
+//     collecting bottom-layer child hashes and building the bitmap
+//  3. Serialize in new format, write at group boundary, delete old keys
 func regroupTrieNodes(db ethdb.KeyValueStore, groupDepth int, verbose bool) error {
 	if groupDepth < 1 || groupDepth > maxGroupDepth {
 		return fmt.Errorf("groupDepth must be 1-%d, got %d", maxGroupDepth, groupDepth)
@@ -218,7 +218,11 @@ func regroupTrieNodes(db ethdb.KeyValueStore, groupDepth int, verbose bool) erro
 		if n.nodeType != nodeTypeStem {
 			continue
 		}
-		depth := len(path)
+		// In bitarray-format keys the last byte is the bit-length; empty path = depth 0.
+		var depth int
+		if len(path) > 0 {
+			depth = int(path[len(path)-1])
+		}
 		groupBoundary := (depth / groupDepth) * groupDepth
 		nextBoundary := groupBoundary + groupDepth
 		if depth >= nextBoundary || depth == groupBoundary {
@@ -226,11 +230,7 @@ func regroupTrieNodes(db ethdb.KeyValueStore, groupDepth int, verbose bool) erro
 			continue
 		}
 		stemBytes := n.blob[1 : 1+stemSize]
-		extendedPath := make([]byte, nextBoundary)
-		copy(extendedPath, path)
-		for i := depth; i < nextBoundary; i++ {
-			extendedPath[i] = stemBytes[i/8] >> (7 - (i % 8)) & 1
-		}
+		extendedPath := makePath(stemBytes, nextBoundary)
 
 		oldKey := make([]byte, len(prefix)+len(path))
 		copy(oldKey, prefix)
