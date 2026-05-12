@@ -536,11 +536,14 @@ func stemBitAt(stem []byte, depth int) byte {
 // makePath builds the bit-path from root to `depth` for the given stem.
 // Each byte is 0x00 (left) or 0x01 (right). Used for trie node DB keys.
 func makePath(stem []byte, depth int) []byte {
-	path := make([]byte, depth)
-	for i := 0; i < depth; i++ {
-		path[i] = stemBitAt(stem, i)
+	if depth <= 0 {
+		return nil
 	}
-	return path
+	var ba bintrie.BitArray
+	ba.SetBytes(uint8(len(stem)*8), stem)
+	var path bintrie.BitArray
+	path.MSBs(&ba, uint8(depth))
+	return path.KeyBytes()
 }
 
 // recordGroupChild records a hash at a boundary depth as a bottom-layer
