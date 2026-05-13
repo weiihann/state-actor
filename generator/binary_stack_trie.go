@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie/bintrie"
+	"github.com/holiman/uint256"
 )
 
 const (
@@ -317,9 +318,8 @@ func collectAccountEntries(
 	}
 	copy(basicData[hashSize-len(balanceBytes):], balanceBytes[:])
 
-	// Stem for account header
-	var zeroKey [hashSize]byte
-	stem := bintrie.GetBinaryTreeKey(addr, zeroKey[:])
+	// Stem for account header (zone 000 under PBT)
+	stem := bintrie.GetBinaryTreeKeyBasicData(addr)
 
 	// Entry for basic data (suffix = BasicDataLeafKey = 0)
 	var e0 trieEntry
@@ -337,7 +337,7 @@ func collectAccountEntries(
 
 	// Code chunk entries
 	if len(code) > 0 {
-		entries = collectCodeEntries(addr, code, entries)
+		entries = collectCodeEntries(addr, common.Hash(acc.CodeHash), code, entries)
 	}
 
 	// Storage entries
@@ -348,32 +348,49 @@ func collectAccountEntries(
 	return entries
 }
 
-// collectCodeEntries generates trie entries for contract code chunks.
-// Mirrors bintrie.BinaryTrie.UpdateContractCode: code is chunked via
-// ChunkifyCode, then grouped into StemNodes of 256 values each.
-// Within a group, chunks share the same stem; the suffix is the group offset.
+// collectCodeEntries generates trie entries for contract code chunks under
+// PBT zone partitioning. Mirrors bintrie.BinaryTrie.UpdateContractCode:
 //
-// Layout:
-//   - First group: chunknr 0..127 at suffixes 128..255 (starts mid-stem)
-//   - Subsequent groups: 256 chunks each at suffixes 0..255
-//
-// The stem is recomputed only at group boundaries (groupOffset == 0 or chunknr == 0).
-func collectCodeEntries(addr common.Address, code []byte, entries []trieEntry) []trieEntry {
+//   - Phase 1 (chunks 0..127): stored in the account header stem (zone 000)
+//     at suffixes 128..255 (HeaderCodeStart + chunknr). Shared stem with
+//     account basic data and code hash.
+//   - Phase 2 (chunks 128+): grouped into stems of 256 in zone 001, key
+//     derived from (addr, codeHash, group_start_chunknr).
+func collectCodeEntries(addr common.Address, codeHash common.Hash, code []byte, entries []trieEntry) []trieEntry {
 	chunks := bintrie.ChunkifyCode(code)
+	nChunks := uint64(len(chunks) / hashSize)
+	if nChunks == 0 {
+		return entries
+	}
 
+	// Phase 1: chunks 0..127 in the account header stem.
+	const headerCodeChunks = uint64(bintrie.HeaderCodeChunks)
+	headerCount := nChunks
+	if headerCount > headerCodeChunks {
+		headerCount = headerCodeChunks
+	}
+	headerStem := bintrie.GetBinaryTreeKeyBasicData(addr)
+	for c := uint64(0); c < headerCount; c++ {
+		var e trieEntry
+		copy(e.Key[:stemSize], headerStem[:stemSize])
+		e.Key[stemSize] = byte(bintrie.HeaderCodeStart + c)
+		copy(e.Value[:], chunks[c*hashSize:(c+1)*hashSize])
+		entries = append(entries, e)
+	}
+
+	// Phase 2: chunks 128+ in zone 001 stems, content-addressed by codeHash.
 	var stem []byte
-	for i, chunknr := 0, uint64(0); i < len(chunks); i, chunknr = i+hashSize, chunknr+1 {
-		groupOffset := (chunknr + 128) % stemNodeWidth
-		if groupOffset == 0 || chunknr == 0 {
-			var offset [hashSize]byte
-			binary.LittleEndian.PutUint64(offset[24:], chunknr+128)
-			stem = bintrie.GetBinaryTreeKey(addr, offset[:])
+	for c := headerCodeChunks; c < nChunks; c++ {
+		adjusted := c - headerCodeChunks
+		groupOffset := adjusted % uint64(stemNodeWidth)
+		if groupOffset == 0 {
+			nr := new(uint256.Int).SetUint64(c)
+			stem = bintrie.GetBinaryTreeKeyCodeChunk(addr, codeHash, nr)
 		}
-
 		var e trieEntry
 		copy(e.Key[:stemSize], stem[:stemSize])
 		e.Key[stemSize] = byte(groupOffset)
-		copy(e.Value[:], chunks[i:i+hashSize])
+		copy(e.Value[:], chunks[c*hashSize:(c+1)*hashSize])
 		entries = append(entries, e)
 	}
 	return entries
