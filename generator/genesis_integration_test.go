@@ -221,7 +221,7 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 
 	// Verify stats
 	expectedAccounts := 1 + 10 // 1 genesis EOA + 10 generated
-	expectedContracts := 1 + 5     // 1 genesis contract + 5 generated
+	expectedContracts := 1 + 5 // 1 genesis contract + 5 generated
 
 	if stats.AccountsCreated != expectedAccounts {
 		t.Errorf("Expected %d accounts, got %d", expectedAccounts, stats.AccountsCreated)
@@ -243,8 +243,7 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 
 	// Verify genesis EOA exists in stem blobs
 	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	var zeroKey [hashSize]byte
-	stem1 := bintrie.GetBinaryTreeKey(addr1, zeroKey[:])
+	stem1 := bintrie.GetBinaryTreeKeyBasicData(addr1)
 	stemBlobKey1 := append([]byte("vX"), stem1[:stemSize]...)
 	data1, err := db.Get(stemBlobKey1)
 	if err != nil {
@@ -256,7 +255,7 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 
 	// Verify genesis contract exists in stem blobs
 	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
-	stem2 := bintrie.GetBinaryTreeKey(addr2, zeroKey[:])
+	stem2 := bintrie.GetBinaryTreeKeyBasicData(addr2)
 	stemBlobKey2 := append([]byte("vX"), stem2[:stemSize]...)
 	data2, err := db.Get(stemBlobKey2)
 	if err != nil {
@@ -412,17 +411,17 @@ func TestEmptyGenesisAccounts(t *testing.T) {
 	dbPath := filepath.Join(dir, "chaindata")
 
 	config := Config{
-		DBPath:          dbPath,
-		NumAccounts:     10,
-		NumContracts:    5,
-		MaxSlots:        50,
-		MinSlots:        1,
-		Distribution:    Uniform,
-		Seed:            123,
-		BatchSize:       1000,
-		Workers:         2,
-		CodeSize:        128,
-		Verbose:         false,
+		DBPath:       dbPath,
+		NumAccounts:  10,
+		NumContracts: 5,
+		MaxSlots:     50,
+		MinSlots:     1,
+		Distribution: Uniform,
+		Seed:         123,
+		BatchSize:    1000,
+		Workers:      2,
+		CodeSize:     128,
+		Verbose:      false,
 		// No GenesisAccounts
 	}
 
