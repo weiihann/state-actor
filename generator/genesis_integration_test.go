@@ -221,7 +221,7 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 
 	// Verify stats
 	expectedAccounts := 1 + 10 // 1 genesis EOA + 10 generated
-	expectedContracts := 1 + 5     // 1 genesis contract + 5 generated
+	expectedContracts := 1 + 5 // 1 genesis contract + 5 generated
 
 	if stats.AccountsCreated != expectedAccounts {
 		t.Errorf("Expected %d accounts, got %d", expectedAccounts, stats.AccountsCreated)
@@ -237,15 +237,15 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 		t.Errorf("Expected at least 2 storage slots from genesis, got %d", stats.StorageSlotsCreated)
 	}
 
-	// In binary trie mode, flat state is stored as stem blobs under "vX" prefix,
-	// NOT as MPT-style "a"/"o" snapshot entries.
+	// In binary trie mode, flat state is stored as stem blobs under
+	// rawdb.UBTFlatStatePrefix, NOT as MPT-style "a"/"o" snapshot entries.
 	db := gen.DB()
 
 	// Verify genesis EOA exists in stem blobs
 	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	var zeroKey [hashSize]byte
 	stem1 := bintrie.GetBinaryTreeKey(addr1, zeroKey[:])
-	stemBlobKey1 := append([]byte("vX"), stem1[:stemSize]...)
+	stemBlobKey1 := append(append([]byte(nil), binTrieFlatStatePrefix...), stem1[:stemSize]...)
 	data1, err := db.Get(stemBlobKey1)
 	if err != nil {
 		t.Errorf("Genesis EOA stem blob not found in database: %v", err)
@@ -257,7 +257,7 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 	// Verify genesis contract exists in stem blobs
 	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
 	stem2 := bintrie.GetBinaryTreeKey(addr2, zeroKey[:])
-	stemBlobKey2 := append([]byte("vX"), stem2[:stemSize]...)
+	stemBlobKey2 := append(append([]byte(nil), binTrieFlatStatePrefix...), stem2[:stemSize]...)
 	data2, err := db.Get(stemBlobKey2)
 	if err != nil {
 		t.Errorf("Genesis contract stem blob not found in database: %v", err)
@@ -412,17 +412,17 @@ func TestEmptyGenesisAccounts(t *testing.T) {
 	dbPath := filepath.Join(dir, "chaindata")
 
 	config := Config{
-		DBPath:          dbPath,
-		NumAccounts:     10,
-		NumContracts:    5,
-		MaxSlots:        50,
-		MinSlots:        1,
-		Distribution:    Uniform,
-		Seed:            123,
-		BatchSize:       1000,
-		Workers:         2,
-		CodeSize:        128,
-		Verbose:         false,
+		DBPath:       dbPath,
+		NumAccounts:  10,
+		NumContracts: 5,
+		MaxSlots:     50,
+		MinSlots:     1,
+		Distribution: Uniform,
+		Seed:         123,
+		BatchSize:    1000,
+		Workers:      2,
+		CodeSize:     128,
+		Verbose:      false,
 		// No GenesisAccounts
 	}
 

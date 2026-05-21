@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie/bintrie"
@@ -46,10 +47,10 @@ func bitmapSizeForDepth(groupDepth int) int {
 var verkleTrieNodeKeyPrefix = []byte("vA")
 
 // binTrieFlatStatePrefix is the database key prefix for bintrie flat-state
-// stem blobs. Each stem blob stores the packed (offset, value) pairs for a
-// single 31-byte stem. Full key: "v" + "X" + stem(31 bytes).
-// Matches rawdb.BinTrieStemPrefix in the go-ethereum bintrie-flat-state branch.
-var binTrieFlatStatePrefix = []byte("vX")
+// stem blobs. Each stem blob stores the packed (bitmap, values) pairs for a
+// single 31-byte stem. Full key: "F" + stem(31 bytes). Centralized in
+// go-ethereum's rawdb so geth's ubtFlatReader and this writer agree.
+var binTrieFlatStatePrefix = rawdb.UBTFlatStatePrefix
 
 // trieEntry is a single key-value pair destined for the binary trie.
 // Key[0:31] is the stem (routes through InternalNode bit tree, 248 bits).
@@ -143,8 +144,8 @@ func serializeStemBlob(entries []trieEntry) []byte {
 }
 
 // stemBlobWriter batches flat-state stem blob writes to Pebble.
-// Each blob is written at key "vX" + stem(31 bytes). Flushes when
-// batch exceeds 256MB (same threshold as trieNodeWriter).
+// Each blob is written at key binTrieFlatStatePrefix + stem(31 bytes).
+// Flushes when batch exceeds 256MB (same threshold as trieNodeWriter).
 //
 // bytes is atomic for the same reason as trieNodeWriter.bytes.
 type stemBlobWriter struct {

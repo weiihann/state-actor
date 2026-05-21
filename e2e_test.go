@@ -332,19 +332,19 @@ func TestEndToEndWithGenesisBinaryTrie(t *testing.T) {
 	defer db.Close()
 
 	// Verify state was actually written. Bintrie packs accounts into stem
-	// blobs under "vX"+stem(31), not into MPT-style "a"+addrHash rows, so a
-	// per-account lookup would need the Pedersen-tree-key derivation.
-	// Stem-blob count > 0 is a sufficient sentinel that generation populated
-	// the DB; the per-account correctness is covered by the generator's own
-	// tests against the golden state root.
-	stemIter := db.NewIterator([]byte("vX"), nil)
+	// blobs under rawdb.UBTFlatStatePrefix + stem(31), not into MPT-style
+	// "a"+addrHash rows, so a per-account lookup would need the binary-tree
+	// key derivation. Stem-blob count > 0 is a sufficient sentinel that
+	// generation populated the DB; the per-account correctness is covered
+	// by the generator's own tests against the golden state root.
+	stemIter := db.NewIterator(rawdb.UBTFlatStatePrefix, nil)
 	stemCount := 0
 	for stemIter.Next() {
 		stemCount++
 	}
 	stemIter.Release()
 	if stemCount == 0 {
-		t.Error("Expected stem blobs under vX prefix in bintrie mode, got 0")
+		t.Errorf("Expected stem blobs under %q prefix in bintrie mode, got 0", rawdb.UBTFlatStatePrefix)
 	}
 
 	// Verify SnapshotRoot. In bintrie mode pathdb wraps its diskdb under
