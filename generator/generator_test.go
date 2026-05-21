@@ -478,7 +478,7 @@ func TestDatabaseContentBinaryTrie(t *testing.T) {
 	}
 
 	// MPT-style snapshot entries ("a", "o") should NOT exist in binary trie mode.
-	// Flat state is stored as stem blobs under "vX" prefix instead.
+	// Flat state is stored as stem blobs under binTrieFlatStatePrefix instead.
 	iter := db.NewIterator([]byte("a"), nil)
 	accountCount := 0
 	for iter.Next() {
@@ -499,13 +499,13 @@ func TestDatabaseContentBinaryTrie(t *testing.T) {
 		t.Errorf("Expected 0 MPT storage snapshots in binary trie mode, got %d", storageCount)
 	}
 
-	// Verify stem blobs exist under "vX" prefix.
-	iter = db.NewIterator([]byte("vX"), nil)
+	// Verify stem blobs exist under binTrieFlatStatePrefix.
+	iter = db.NewIterator(binTrieFlatStatePrefix, nil)
 	stemBlobCount := 0
 	for iter.Next() {
 		key := iter.Key()
 		val := iter.Value()
-		// Key must be "vX" + stem(31 bytes) = 33 bytes total
+		// Key must be prefix + stem(31 bytes) = len(prefix)+31 bytes total.
 		if len(key) != len(binTrieFlatStatePrefix)+stemSize {
 			t.Errorf("Unexpected stem blob key length: got %d, want %d", len(key), len(binTrieFlatStatePrefix)+stemSize)
 		}

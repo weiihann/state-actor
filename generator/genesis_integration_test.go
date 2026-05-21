@@ -237,14 +237,14 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 		t.Errorf("Expected at least 2 storage slots from genesis, got %d", stats.StorageSlotsCreated)
 	}
 
-	// In binary trie mode, flat state is stored as stem blobs under "vX" prefix,
-	// NOT as MPT-style "a"/"o" snapshot entries.
+	// In binary trie mode, flat state is stored as stem blobs under
+	// rawdb.UBTFlatStatePrefix, NOT as MPT-style "a"/"o" snapshot entries.
 	db := gen.DB()
 
 	// Verify genesis EOA exists in stem blobs
 	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	stem1 := bintrie.GetBinaryTreeKeyBasicData(addr1)
-	stemBlobKey1 := append([]byte("vX"), stem1[:stemSize]...)
+	stem1 := bintrie.GetBinaryTreeStemAccount(addr1)
+	stemBlobKey1 := append(append([]byte(nil), binTrieFlatStatePrefix...), stem1...)
 	data1, err := db.Get(stemBlobKey1)
 	if err != nil {
 		t.Errorf("Genesis EOA stem blob not found in database: %v", err)
@@ -255,8 +255,8 @@ func TestGenesisAccountsIntegrationBinaryTrie(t *testing.T) {
 
 	// Verify genesis contract exists in stem blobs
 	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
-	stem2 := bintrie.GetBinaryTreeKeyBasicData(addr2)
-	stemBlobKey2 := append([]byte("vX"), stem2[:stemSize]...)
+	stem2 := bintrie.GetBinaryTreeStemAccount(addr2)
+	stemBlobKey2 := append(append([]byte(nil), binTrieFlatStatePrefix...), stem2...)
 	data2, err := db.Get(stemBlobKey2)
 	if err != nil {
 		t.Errorf("Genesis contract stem blob not found in database: %v", err)
